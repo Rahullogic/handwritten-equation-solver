@@ -19,6 +19,21 @@ _SWAP = {r"\dfrac": r"\frac", r"\tfrac": r"\frac", r"\times": r"\cdot", r"\ast":
          r"\div": "/", r"\lbrace": "{", r"\rbrace": "}", r"\lbrack": "[", r"\rbrack": "]"}
 
 
+def _drop_unbalanced_parens(s):
+    """Remove '(' / ')' that have no partner (the model sometimes hallucinates a stray bracket)."""
+    stack, bad = [], set()
+    for i, ch in enumerate(s):
+        if ch == "(":
+            stack.append(i)
+        elif ch == ")":
+            if stack:
+                stack.pop()
+            else:
+                bad.add(i)
+    bad.update(stack)
+    return "".join(ch for i, ch in enumerate(s) if i not in bad)
+
+
 def clean_latex(s):
     """Normalise handwriting-model LaTeX into something SymPy's parser accepts."""
     for t in _STRIP:
@@ -26,13 +41,15 @@ def clean_latex(s):
     for a, b in _SWAP.items():
         s = s.replace(a, b)
     s = s.replace("[", "(").replace("]", ")")
+    s = _drop_unbalanced_parens(s)
     s = re.sub(r"\\mathrm\{([^}]*)\}", r"\1", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s.rstrip("?").strip()
 
 
 def _parse(expr):
-    return parse_latex(expr)
+    e = parse_latex(expr)
+    return e.subs(sp.Symbol("e"), sp.E)          # handwritten 'e' means Euler's number
 
 
 def _fmt(x):
@@ -156,7 +173,12 @@ def _approx(val):
 
 def _sol_str(sol):
     if isinstance(sol, sp.FiniteSet):
-        return ", ".join(sp.sstr(v) for v in sorted(sol, key=lambda v: (not v.is_real, str(v))))
+        def key(v):
+            try:
+                return (0, float(v), "")
+            except (TypeError, ValueError):
+                return (1, 0.0, str(v))
+        return ", ".join(sp.sstr(v) for v in sorted(sol, key=key))
     return sp.sstr(sol)
 
 
